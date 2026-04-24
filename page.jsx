@@ -1,131 +1,127 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Card, CardContent } from "@/components/ui/card";
 
-const WEBHOOK_URL = "PASTE_YOUR_ZAPIER_OR_SUPABASE_WEBHOOK_HERE";
-
-const exercises = [
+const EXERCISES = [
   "Pull-ups",
   "Push-ups",
-  "Single Arm Dumbbell Row",
-  "Dumbbell Bench",
-  "Dumbbell Split Squat",
-  "Pike Push-up",
-  "Shoulder Press",
-  "Bicep Curls",
-  "Dumbbell Skullcrushers",
+  "Single arm dumbbell row",
+  "Dumbbell bench",
+  "Dumbbell split squat",
+  "Pike push-up",
+  "Shoulder press",
+  "Bicep curls",
+  "Dumbbell skullcrushers",
 ];
 
-export default function WorkoutTracker() {
-  const [logs, setLogs] = useState(() => {
-    const saved = localStorage.getItem("logs");
-    return saved ? JSON.parse(saved) : [];
-  });
+const BODYWEIGHT = new Set(["Pull-ups", "Push-ups", "Pike push-up"]);
+const STORAGE_KEY = "weekly-workout-entries";
 
-  const [entry, setEntry] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    exercise: "",
-    sets: "1",
-    reps: "10",
-    weight: "",
-    notes: "",
-  });
-
-  useEffect(() => {
-    localStorage.setItem("logs", JSON.stringify(logs));
-  }, [logs]);
-
-  const todayEntries = logs.filter(l => l.date === entry.date);
-
-  const sendToSheet = async (data) => {
-    if (!WEBHOOK_URL.includes("http")) return;
-    try {
-      await fetch(WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-    } catch (e) {
-      console.log("Sync failed", e);
-    }
+function Icon({ name, className = "h-5 w-5" }) {
+  const common = { className, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2 };
+  const icons = {
+    plus: <svg {...common}><path d="M12 5v14M5 12h14"/></svg>,
+    trash: <svg {...common}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>,
+    check: <svg {...common}><path d="M20 6L9 17l-5-5"/></svg>,
   };
+  return icons[name] || null;
+}
 
-  const addEntry = async () => {
-    if (!entry.exercise) return;
-    if (todayEntries.length >= 3) {
-      alert("Max 3 exercises per day");
-      return;
-    }
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-    const newEntry = { ...entry };
+function makeId() {
+  return `entry-${Date.now()}-${Math.random()}`;
+}
 
-    setLogs([...logs, newEntry]);
+function getWeekRange(dateString) {
+  const d = new Date(dateString);
+  const day = d.getDay();
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10)};
+}
 
-    await sendToSheet(newEntry);
+export default function App() {
+  const [entries, setEntries] = useState(() => JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]"));
 
-    setEntry({ ...entry, exercise: "", weight: "", notes: "" });
-  };
+  const [slots, setSlots] = useState(
+    Array.from({length:3}).map(()=>({
+      date: todayISO(),
+      exercise: EXERCISES[0],
+      sets:1,
+      reps:20,
+      weight:"Bodyweight"
+    }))
+  );
 
-  const getStreak = () => {
-    const days = [...new Set(logs.map(l => l.date))].sort().reverse();
-    let streak = 0;
-    let current = new Date();
+  useEffect(()=>{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  },[entries]);
 
-    for (let d of days) {
-      const date = new Date(d);
-      const diff = Math.floor((current - date) / (1000 * 60 * 60 * 24));
-      if (diff === streak) streak++;
-      else break;
-    }
-    return streak;
-  };
+  function updateSlot(i, field, value){
+    setSlots(s=>{
+      const copy=[...s];
+      copy[i]={...copy[i],[field]:value};
+      if(field==="exercise"){
+        copy[i].reps = BODYWEIGHT.has(value)?20:10;
+        copy[i].weight = BODYWEIGHT.has(value)?"Bodyweight":"";
+      }
+      return copy;
+    });
+  }
+
+  function saveAll(){
+    const newEntries = slots.map(s=>(
+      {...s, id:makeId()}
+    ));
+    setEntries(e=>[...newEntries,...e]);
+  }
+
+  const week = getWeekRange(slots[0].date);
+  const weekEntries = entries.filter(e=>e.date>=week.start && e.date<=week.end);
 
   return (
-    <div className="p-4 grid gap-4 max-w-xl mx-auto">
-      <Card className="rounded-2xl shadow">
-        <CardContent className="p-4 grid gap-3">
-          <h1 className="text-xl font-bold">Daily Workout</h1>
+    <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <h1 className="text-3xl font-bold">Super Simple Workout Logger</h1>
 
-          <div className="text-sm">Streak: {getStreak()} days</div>
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          {slots.map((slot,i)=>(
+            <div key={i} className="grid grid-cols-5 gap-2">
+              <input type="date" value={slot.date} onChange={e=>updateSlot(i,"date",e.target.value)} className="border p-2"/>
+              <select value={slot.exercise} onChange={e=>updateSlot(i,"exercise",e.target.value)} className="border p-2">
+                {EXERCISES.map(e=><option key={e}>{e}</option>)}
+              </select>
+              <select value={slot.sets} onChange={e=>updateSlot(i,"sets",e.target.value)} className="border p-2">
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+              <input type="number" value={slot.reps} onChange={e=>updateSlot(i,"reps",e.target.value)} className="border p-2"/>
+              <input value={slot.weight} onChange={e=>updateSlot(i,"weight",e.target.value)} className="border p-2" placeholder="weight"/>
+            </div>
+          ))}
 
-          <Input
-            type="date"
-            value={entry.date}
-            onChange={e => setEntry({ ...entry, date: e.target.value })}
-          />
-
-          <Select onValueChange={val => setEntry({ ...entry, exercise: val })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Pick exercise" />
-            </SelectTrigger>
-            <SelectContent>
-              {exercises.map(ex => (
-                <SelectItem key={ex} value={ex}>{ex}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Input value={entry.sets} onChange={e => setEntry({ ...entry, sets: e.target.value })} />
-          <Input value={entry.reps} onChange={e => setEntry({ ...entry, reps: e.target.value })} />
-          <Input placeholder="Weight" value={entry.weight} onChange={e => setEntry({ ...entry, weight: e.target.value })} />
-          <Input placeholder="Notes" value={entry.notes} onChange={e => setEntry({ ...entry, notes: e.target.value })} />
-
-          <Button onClick={addEntry}>Log</Button>
+          <Button onClick={saveAll} className="w-full">
+            <Icon name="plus"/> Save All
+          </Button>
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl shadow">
-        <CardContent className="p-4">
-          <h2 className="font-semibold mb-2">Today</h2>
-          <ul className="text-sm space-y-1">
-            {todayEntries.map((l, i) => (
-              <li key={i}>
-                {l.exercise} ({l.sets}x{l.reps}) @ {l.weight}
-              </li>
-            ))}
-          </ul>
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          <h2 className="font-bold">This Week</h2>
+          {weekEntries.map(e=>(
+            <div key={e.id} className="flex justify-between border p-2">
+              <span>{e.date} - {e.exercise} ({e.sets}x{e.reps})</span>
+              <button onClick={()=>setEntries(en=>en.filter(x=>x.id!==e.id))}><Icon name="trash"/></button>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>
